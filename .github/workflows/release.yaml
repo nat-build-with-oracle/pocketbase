@@ -6,6 +6,8 @@ on:
 
 jobs:
   goreleaser:
+    # fork (nat-build-with-oracle): the plugin's own tags release in the passkey job below
+    if: ${{ !startsWith(github.ref, 'refs/tags/plugins/') }}
     runs-on: ubuntu-latest
     env:
       flags: ""
@@ -54,3 +56,58 @@ jobs:
           args: release --clean ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # fork (nat-build-with-oracle): plugins/passkey is its own Go module on upstream PocketBase.
+  # Every push / PR: vet + test it. A tag plugins/passkey/vX.Y.Z (the Go module version tag, so
+  # `go get github.com/nat-build-with-oracle/pocketbase/plugins/passkey@vX.Y.Z` works) also
+  # builds a ready-to-run PocketBase with passkeys for each platform and publishes a release.
+  passkey:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: plugins/passkey
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: plugins/passkey/go.mod
+          cache-dependency-path: plugins/passkey/go.sum
+
+      - name: Vet and test the plugin
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build PocketBase + passkey binaries
+        if: ${{ startsWith(github.ref, 'refs/tags/plugins/passkey/v') }}
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#plugins/passkey/}"
+          PBV="$(go list -m -f '{{.Version}}' github.com/pocketbase/pocketbase)"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"; ext=""; [ "$os" = windows ] && ext=".exe"
+            out="build/${os}_${arch}"; mkdir -p "$out"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=7 go build -trimpath \
+              -ldflags "-s -w -X github.com/pocketbase/pocketbase.Version=${PBV#v}+passkey.${V#v}" \
+              -o "$out/pocketbase$ext" ./examples/base
+            cp ../../LICENSE.md README.md "$out/"
+            (cd "$out" && zip -q "../../dist/pocketbase-passkey_${V#v}_${os}_${arch}.zip" *)
+          done
+          (cd dist && sha256sum *.zip > checksums.txt)
+          echo "PBV=$PBV" >> "$GITHUB_ENV"
+          echo "V=$V" >> "$GITHUB_ENV"
+
+      - name: Publish the release
+        if: ${{ startsWith(github.ref, 'refs/tags/plugins/passkey/v') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "PocketBase ${PBV} + passkey ${V}" \
+            --notes "PocketBase ${PBV} (upstream, unchanged) with the passkey plugin ${V}: sign in with Touch ID, Face ID, Windows Hello, a phone or a security key. See plugins/passkey/README.md."
