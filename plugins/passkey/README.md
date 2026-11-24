@@ -23,6 +23,17 @@ go get github.com/nat-build-with-oracle/pocketbase/plugins/passkey
 Or download a ready-to-run PocketBase with the plugin from the
 [releases](https://github.com/nat-build-with-oracle/pocketbase/releases) (tags `plugins/passkey/v*`).
 
+Or run the container (linux/amd64 + arm64, built on every push):
+
+```
+docker run -p 8090:8090 -v pb_data:/pb/pb_data \
+  -e PB_PASSKEY_RP_ID=pb.example.com -e PB_PASSKEY_ORIGINS=https://pb.example.com \
+  ghcr.io/nat-build-with-oracle/pocketbase-passkey:latest     # or :edge for the branch head
+```
+
+Put an https reverse proxy in front: passkeys need https at `PB_PASSKEY_ORIGINS`. Without the two
+variables PocketBase runs as usual and the passkey routes answer 503.
+
 ## Quick start
 
 ```go
@@ -127,6 +138,8 @@ cd e2e && bun install && BASE=http://localhost:8090 EMAIL=admin@example.com PASS
 
 The fork keeps `master` identical to upstream PocketBase. This plugin lives on the `passkey` branch,
 in its own folder and module, so upstream merges never touch it. Release: tag `plugins/passkey/vX.Y.Z`
-(the Go module version); CI tests it and attaches PocketBase + passkey binaries for Linux, macOS and Windows.
+(the Go module version); CI tests it, attaches PocketBase + passkey binaries for Linux, macOS and Windows,
+and pushes `ghcr.io/nat-build-with-oracle/pocketbase-passkey:X.Y.Z` and `:latest`. Every push to the
+`passkey` branch pushes `:edge`.
 
 License: MIT, like PocketBase. Uses [go-webauthn](https://github.com/go-webauthn/webauthn) (BSD-3-Clause).

@@ -111,3 +111,54 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --prerelease \
             --title "PocketBase ${PBV} + passkey ${V}" \
             --notes "PocketBase ${PBV} (upstream, unchanged) with the passkey plugin ${V}: sign in with Touch ID, Face ID, Windows Hello, a phone or a security key. See plugins/passkey/README.md."
+
+  # fork (nat-build-with-oracle): public container image ghcr.io/nat-build-with-oracle/pocketbase-passkey
+  # (linux/amd64 + linux/arm64). Every push to the passkey branch -> :edge; a tag
+  # plugins/passkey/vX.Y.Z -> :X.Y.Z and :latest. Built only after the plugin's tests pass.
+  image:
+    needs: passkey
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/passkey' || startsWith(github.ref, 'refs/tags/plugins/passkey/v')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/plugins/passkey/v* ]]; then
+            V="${GITHUB_REF_NAME#plugins/passkey/v}"
+            echo "VERSION=$V" >> "$GITHUB_ENV"
+            echo "TAGS=ghcr.io/${GITHUB_REPOSITORY_OWNER}/pocketbase-passkey:${V},ghcr.io/${GITHUB_REPOSITORY_OWNER}/pocketbase-passkey:latest" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=edge-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "TAGS=ghcr.io/${GITHUB_REPOSITORY_OWNER}/pocketbase-passkey:edge" >> "$GITHUB_ENV"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: plugins/passkey
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.TAGS }}
+          build-args: VERSION=${{ env.VERSION }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=pocketbase-passkey
+            org.opencontainers.image.description=PocketBase with passkey (fingerprint / Face ID / security key) sign-in
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
