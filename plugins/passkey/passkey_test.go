@@ -370,6 +370,34 @@ func TestPasskeyCanManage(t *testing.T) {
 	}
 }
 
+// An app may create CollectionName in its own migration: the plugin must not take the name first.
+// apis.Serve runs migrations before OnServe, and the plugin creates the collection only there.
+func TestCollectionCreatedOnServeNotBootstrap(t *testing.T) {
+	app, err := tests.NewTestApp(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	MustRegister(app, Config{CollectionName: "my_passkeys"})
+	if err := app.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.FindCollectionByNameOrId("my_passkeys"); err == nil {
+		t.Fatal("collection created on bootstrap: an app migration creating it would fail")
+	}
+	r, err := apis.NewRouter(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.OnServe().Trigger(&core.ServeEvent{App: app, Router: r, Server: &http.Server{Addr: "127.0.0.1:8090"}},
+		func(*core.ServeEvent) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.FindCollectionByNameOrId("my_passkeys"); err != nil {
+		t.Fatalf("collection missing after serve: %v", err)
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	p := newPlugin(Config{})
 	if len(p.cfg.AuthCollections) != 1 || p.cfg.AuthCollections[0] != "_superusers" || p.cfg.CollectionName != "_passkeys" || p.cfg.MaxPerRecord != 10 {

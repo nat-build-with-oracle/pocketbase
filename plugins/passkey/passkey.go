@@ -108,8 +108,8 @@ func MustRegister(app core.App, config Config) {
 	}
 }
 
-// Register registers the plugin: it makes sure the credentials collection exists after bootstrap
-// and binds the routes when the server starts.
+// Register registers the plugin: when the server starts (after the app's migrations) it makes sure
+// the credentials collection exists and binds the routes.
 func Register(app core.App, config Config) error {
 	p := newPlugin(config)
 	if p.cfg.AdminButton {
@@ -119,14 +119,12 @@ func Register(app core.App, config Config) error {
 		}
 	}
 
-	app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
-		if err := e.Next(); err != nil {
+	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// Here, not on bootstrap: apis.Serve runs the app's migrations first, so an app that
+		// creates CollectionName in its own migration gets it from there, untouched.
+		if err := p.ensureCollection(se.App); err != nil {
 			return err
 		}
-		return p.ensureCollection(e.App)
-	})
-
-	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		rpID, origins := p.cfg.RPID, p.cfg.Origins
 		if rpID == "" && len(origins) == 0 {
 			rpID, origins = localDefaults(se.Server.Addr)
