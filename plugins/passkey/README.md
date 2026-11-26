@@ -94,6 +94,7 @@ open http://localhost:8090/_/                 # localhost, not 127.0.0.1: an IP 
 | `CollectionName` | `"_passkeys"` | System collection that stores the credentials |
 | `MaxPerRecord` | `10` | Passkeys per record |
 | `AdminButton` | `false` | Dashboard login button + `/_/passkeys` page (superusers only) |
+| `CanManage` | `nil` | `func(e *core.RequestEvent) error`: narrows who may add, list and remove passkeys (e.g. a role field); an error answers 403. Login is not affected |
 
 With no RPID and a non-loopback bind, every ceremony answers `503` and the buttons explain why.
 `examples/base` reads `PB_PASSKEY_RP_ID` and `PB_PASSKEY_ORIGINS` (comma-separated).

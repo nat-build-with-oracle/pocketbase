@@ -22,7 +22,8 @@
 //	GET    /api/passkey/where                         anyone                    {origin}: where passkeys work
 //
 // Design:
-//   - Only records of Config.AuthCollections (default: _superusers) may add or use a passkey.
+//   - Only records of Config.AuthCollections (default: _superusers) may add or use a passkey;
+//     Config.CanManage can narrow who adds them further (a role field, say).
 //   - Login is discoverable: login/begin names no account and lists no credentials; the
 //     authenticator picks the passkey and returns its user handle ("<collection>:<record id>").
 //     The signature is accepted only with a credential stored for that same record, so one
@@ -87,6 +88,12 @@ type Config struct {
 	// AdminButton adds "Sign in with passkey" under the dashboard's login form (/_/).
 	// It signs in superusers only.
 	AdminButton bool
+
+	// CanManage, when set, further limits who may add, list and remove passkeys: it runs after
+	// the AuthCollections check with e.Auth set, and a non-nil error refuses the request (403).
+	// Example: only users whose role is "admin". Login is not affected: a passkey already stored
+	// keeps signing its record in until it is removed.
+	CanManage func(e *core.RequestEvent) error
 }
 
 const (
@@ -328,6 +335,11 @@ func (p *plugin) ready(e *core.RequestEvent) error {
 func (p *plugin) owner(e *core.RequestEvent) (*core.Record, error) {
 	if e.Auth == nil || !slices.Contains(p.cfg.AuthCollections, e.Auth.Collection().Name) {
 		return nil, e.ForbiddenError("Sign in first with an account that may use passkeys.", nil)
+	}
+	if p.cfg.CanManage != nil {
+		if err := p.cfg.CanManage(e); err != nil {
+			return nil, e.ForbiddenError("This account may not manage passkeys.", err)
+		}
 	}
 	return e.Auth, nil
 }

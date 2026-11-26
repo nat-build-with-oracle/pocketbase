@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -340,6 +341,32 @@ func TestPasskeyOnlyAllowedCollections(t *testing.T) {
 	_, su := env.record("_superusers", "admin@example.com", "")
 	if code, _ := env.do("POST", "/api/passkey/register/begin", su, nil); code != 200 {
 		t.Fatalf("superuser register/begin: %d, want 200", code)
+	}
+}
+
+func TestPasskeyCanManage(t *testing.T) {
+	env := newPKEnv(t, testRPID, testOrigin)
+	env.p.cfg.CanManage = func(e *core.RequestEvent) error {
+		if e.Auth.Email() != "admin@example.com" {
+			return errors.New("not an admin")
+		}
+		return nil
+	}
+	_, other := env.record("users", "user@example.com", "")
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/api/passkey/register/begin"}, {"GET", "/api/passkey"}, {"DELETE", "/api/passkey/x"},
+	} {
+		if code, _ := env.do(c.method, c.path, other, nil); code != 403 {
+			t.Fatalf("refused record %s %s: %d, want 403", c.method, c.path, code)
+		}
+	}
+	_, admin := env.record("users", "admin@example.com", "")
+	k := newSoftKey(t)
+	if code := env.register(admin, k, testOrigin); code != 200 {
+		t.Fatalf("allowed record register: %d", code)
+	}
+	if code, b := env.login(k, testOrigin, k.handle); code != 200 || b["token"] == nil {
+		t.Fatalf("login with the passkey: %d %v", code, b)
 	}
 }
 
